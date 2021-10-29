@@ -1,0 +1,291 @@
+###############################################################################
+# Resources 
+###############################################################################   
+
+Resources: 
+
+  rEC2VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: "default"
+      Tags: 
+        - 
+          Key: "Environment"
+          Value: "DEV"
+              
+  rEC2Subnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      AvailabilityZone: 
+                Fn::Select: 
+                  - 0
+                  - Fn::GetAZs: ""
+      CidrBlock: "10.0.100.0/24"
+      VpcId: !Ref rEC2VPC
+      MapPublicIpOnLaunch: false
+      Tags: 
+        - 
+          Key: "Environment"
+          Value: "DEV"
+
+
+  rInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - 
+          Key: Name
+          Value: !Join [ '', [ 'InternetGateway / ', !Ref 'AWS::StackName' ] ]
+
+  rAttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref rInternetGateway
+      VpcId: !Ref rEC2VPC
+
+  rPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: rAttachInternetGateway
+    Properties:
+      RouteTableId: !Ref rPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref rInternetGateway
+
+  rPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join [ '', [ 'PublicRouteTable / ', !Ref 'AWS::StackName' ] ]
+        - Key: Network
+          Value: Public
+      VpcId: !Ref rEC2VPC
+
+  rPublicRouteTableAssociation0:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref rEC2Subnet1
+      RouteTableId: !Ref rPublicRouteTable
+
+  rEC2SecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: !Sub Allow connections to the web server
+            VpcId: !Ref rEC2VPC
+            SecurityGroupIngress: 
+              - 
+                CidrIp: "0.0.0.0/0"
+                FromPort: 80
+                IpProtocol: "tcp"
+                ToPort: 80
+              - 
+                CidrIp: "0.0.0.0/0"
+                FromPort: 22
+                IpProtocol: "tcp"
+                ToPort: 22
+            SecurityGroupEgress: 
+              - 
+                CidrIp: "0.0.0.0/0"
+                FromPort: "-1"
+                IpProtocol: "-1"
+                ToPort: "-1"
+            Tags:
+              -
+                Key: Environment 
+                Value: DEV
+
+
+  rS3BucketSite:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccessControl: PublicRead
+      WebsiteConfiguration: 
+        IndexDocument: "index.html"
+
+      
+  rS3BucketCFLogs:
+    Type: AWS::S3::Bucket
+
+  rBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Id: MyPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref rS3BucketSite
+                - /*
+      Bucket: !Ref rS3BucketSite
+
+  rBucketPolicy2:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Id: MyPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: s3listbucket
+            Effect: Allow
+            Principal: '*'
+            Action: 
+              - 's3:ListBucket'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref rS3BucketCFLogs
+      Bucket: !Ref rS3BucketCFLogs
+
+  rBucketPolicy3:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      PolicyDocument:
+        Id: MyPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: s3getobject
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref rS3BucketCFLogs
+                - /*
+      Bucket: !Ref rS3BucketCFLogs
+
+  rEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-b70554c8
+      InstanceType: t2.micro
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet: 
+            - Ref: rEC2SecurityGroup
+          SubnetId: 
+            Ref: rEC2Subnet1
+      UserData: IyEvYmluL2Jhc2gKeXVtIHVwZGF0ZSAteQp5dW0gaW5zdGFsbCBodHRwZCAteQpzZXJ2aWNlIGh0dHBkIHN0YXJ0CmNoa2NvbmZpZyBodHRwZCBvbgpjZCAvdmFyL3d3dy9odG1sCmVjaG8gIjxodG1sPjxib2R5PklQIGFkZHJlc3Mgb2YgdGhpcyBpbnN0YW5jZTogIiA+IGluZGV4Lmh0bWwKY3VybCBodHRwOi8vMTY5LjI1NC4xNjkuMjU0L2xhdGVzdC9tZXRhLWRhdGEvcHVibGljLWlwdjQgPj4gaW5kZXguaHRtbAplY2hvICI8L2JvZHk+PC9odG1sPiIgPj4gaW5kZXguaHRtbA==
+  
+  rCloudFrontDistribution:
+    Type: "AWS::CloudFront::Distribution"
+    Properties:
+      DistributionConfig: 
+        Origins: 
+          - 
+             ConnectionAttempts: 3
+             ConnectionTimeout: 10
+             CustomOriginConfig: 
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginKeepaliveTimeout: 5
+              OriginProtocolPolicy: "http-only"
+              OriginReadTimeout: 30
+              OriginSSLProtocols: 
+                - "TLSv1"
+                - "TLSv1.1"
+                - "TLSv1.2"
+             DomainName: !GetAtt rEC2Instance.PublicDnsName
+             Id: !GetAtt rEC2Instance.PublicDnsName
+             OriginPath: ""
+        OriginGroups: 
+          Quantity: 0
+        DefaultCacheBehavior: 
+          AllowedMethods: 
+            - "HEAD"
+            - "GET"
+          CachedMethods: 
+            - "HEAD"
+            - "GET"
+          Compress: true
+          CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          SmoothStreaming: false
+          TargetOriginId: !GetAtt rEC2Instance.PublicDnsName
+          ViewerProtocolPolicy: "redirect-to-https"
+        Comment: ""
+        PriceClass: "PriceClass_All"
+        Enabled: true
+        ViewerCertificate: 
+          CloudFrontDefaultCertificate: true
+          MinimumProtocolVersion: "TLSv1"
+        Restrictions: 
+          GeoRestriction: 
+            RestrictionType: "none"
+        HttpVersion: "http2"
+        DefaultRootObject: ""
+        IPV6Enabled: false
+
+  rCloudFrontDistribution2:
+        Type: "AWS::CloudFront::Distribution"
+        Properties:
+            DistributionConfig: 
+                Origins: 
+                  - 
+                    ConnectionAttempts: 3
+                    ConnectionTimeout: 10
+                    DomainName: !Sub "${rS3BucketSite}.s3.${AWS::Region}.amazonaws.com"
+                    Id: !Sub "${rS3BucketSite}.s3.${AWS::Region}.amazonaws.com - index"
+                    OriginPath: ""
+                    S3OriginConfig: 
+                        OriginAccessIdentity:
+                          Fn::Join:
+                            - ''
+                            -
+                              - 'origin-access-identity/cloudfront/'
+                              - Ref: rcloudfrontoriginaccessidentity
+                OriginGroups: 
+                    Quantity: 0
+                DefaultCacheBehavior: 
+                    AllowedMethods: 
+                      - "HEAD"
+                      - "GET"
+                    CachedMethods: 
+                      - "HEAD"
+                      - "GET"
+                    Compress: true
+                    CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+                    SmoothStreaming: false
+                    TargetOriginId: !Sub "${rS3BucketSite}.s3.${AWS::Region}.amazonaws.com - index"
+                    ViewerProtocolPolicy: "redirect-to-https"
+                Comment: ""
+                PriceClass: "PriceClass_All"
+                Enabled: true
+                ViewerCertificate: 
+                    CloudFrontDefaultCertificate: true
+                    MinimumProtocolVersion: "TLSv1"
+                Restrictions: 
+                    GeoRestriction: 
+                        RestrictionType: "none"
+                HttpVersion: "http2"
+                DefaultRootObject: "index.html"
+                IPV6Enabled: true
+  
+  rcloudfrontoriginaccessidentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: "some comment"
+Outputs:
+  oWebsiteURL:
+    Value: !GetAtt 
+      - rS3BucketSite
+      - WebsiteURL
+    Description: URL for website hosted on S3
+  oS3BucketSecureURL:
+    Value: !Join 
+      - ''
+      - - 'https://'
+        - !GetAtt 
+          - rS3BucketSite
+          - DomainName
+    Description: Name of S3 bucket to hold website content
