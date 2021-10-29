@@ -1,6 +1,9 @@
-###############################################################################
-# Resources 
-###############################################################################   
+#############################################################################################
+# Resources :
+# 02 buckets one for the CloudFront Logs and another for a static website
+# 01 EC2 instance runing a webserver
+# 01 CloudFront Distribution for the S3 static website and (01) another for the webserver
+##############################################################################################   
 
 Resources: 
 
